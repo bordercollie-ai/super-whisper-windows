@@ -23,6 +23,7 @@ Windows 托盘小工具：按全局快捷键开始录音，再按一次结束，
 | `languages` | `["zh", "en", "ja"]` | 检测时只在这些语言里选 |
 | `language_bias` | `{"zh": 4.0}` | 给某种语言加权，数值越大越倾向它，日语或英语被误判太多时调高中文 |
 | `beam_size` | `5` | 束搜索宽度，越大越准但越慢 |
+| `hotwords` | 空 | 常说的词，用空格分隔，如 `提交 推送 commit push`，识别时会更倾向这些词 |
 | `initial_prompt` | 中英日各一句普通问候 | 引导输出简体和标点风格，也可以放常用专有名词，留空则不使用 |
 | `auto_paste` | `true` | 识别后自动粘贴；`false` 则只放剪贴板 |
 | `restore_clipboard` | `true` | 自动粘贴后还原原来的剪贴板文字 |
@@ -30,7 +31,7 @@ Windows 托盘小工具：按全局快捷键开始录音，再按一次结束，
 | `chinese_script` | `simplified` | `simplified` 简体、`traditional` 繁体、`none` 不转换 |
 | `normalize_punctuation` | `true` | 中日文语境用全角标点，纯英文用半角加空格 |
 | `notify_result` | `false` | 识别成功后是否弹通知；出错时总会通知 |
-| `debug_log` | `false` | 设为 `true` 会把每段识别的文字和置信度写入 `debug.log`，用来排查识别不准 |
+| `debug_log` | `false` | 设为 `true` 会把每次识别的音量、语言检测概率、文字和置信度写入 `debug.log`，用来排查识别不准 |
 
 ## 修改设置
 

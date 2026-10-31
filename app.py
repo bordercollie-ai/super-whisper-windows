@@ -16,6 +16,7 @@ DEFAULTS = {
     "languages": ["zh", "en", "ja"],
     "language_bias": {"zh": 4.0},
     "beam_size": 5,
+    "hotwords": "",
     "initial_prompt": "你好，这是一段普通话。Hello, this is English. こんにちは、日本語です。",
     "auto_paste": True,
     "restore_clipboard": True,
@@ -147,15 +148,19 @@ def recognize(audio):
         vad_parameters={"min_speech_duration_ms": 250},
         beam_size=cfg["beam_size"],
         initial_prompt=cfg["initial_prompt"] or None,
+        hotwords=cfg["hotwords"] or None,
         condition_on_previous_text=False,
     )
     segments = list(segments)
     if cfg["debug_log"]:
         with open(ROOT / "debug.log", "a", encoding="utf-8") as f:
             now = time.strftime("%H:%M:%S")
+            peak = float(np.abs(audio).max()) if len(audio) else 0.0
+            rms = float(np.sqrt(np.mean(audio**2))) if len(audio) else 0.0
             f.write(
-                f"{now} --- audio={len(audio) / SR:.1f}s language={cfg['language']} "
-                f"multilingual={cfg['multilingual']} bias={cfg['language_bias']}\n"
+                f"{now} --- audio={len(audio) / SR:.1f}s peak={peak:.2f} rms={rms:.3f} "
+                f"language={cfg['language']} multilingual={cfg['multilingual']} "
+                f"bias={cfg['language_bias']}\n"
             )
             for top in model.model.detections:
                 cand = " ".join(f"{c}:{raw:.2f}->{w:.2f}" for c, raw, w in top)
