@@ -14,7 +14,8 @@ DEFAULTS = {
     "language": "zh",
     "multilingual": True,
     "languages": ["zh", "en", "ja"],
-    "language_bias": {"zh": 2.0},
+    "language_bias": {"zh": 4.0},
+    "beam_size": 5,
     "initial_prompt": "你好，这是一段普通话。Hello, this is English. こんにちは、日本語です。",
     "auto_paste": True,
     "restore_clipboard": True,
@@ -22,9 +23,11 @@ DEFAULTS = {
     "chinese_script": "simplified",
     "normalize_punctuation": True,
     "notify_result": False,
+    "debug_log": False,
 }
 
 SCRIPT_CHOICES = {"simplified": "简体中文", "traditional": "繁体中文", "none": "不转换"}
+LANGUAGE_CHOICES = [("zh", "中文"), ("en", "English"), ("ja", "日本語"), (None, "自动检测")]
 KANA = re.compile(r"[\u3040-\u30ff]")
 CJK_CLASS = r"\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"
 CJK = re.compile(f"[{CJK_CLASS}]")
@@ -133,24 +136,39 @@ def audio_cb(indata, frames, t, status):
             threading.Thread(target=toggle, daemon=True).start()
 
 
+def recognize(audio):
+    """音频 -> 最终文本(含繁简转换和标点规范化)。托盘流程和测试共用。"""
+    segments, _ = model.transcribe(
+        audio,
+        language=cfg["language"],
+        multilingual=cfg["multilingual"],
+        vad_filter=True,
+        vad_parameters={"min_speech_duration_ms": 250},
+        beam_size=cfg["beam_size"],
+        initial_prompt=cfg["initial_prompt"] or None,
+        condition_on_previous_text=False,
+    )
+    segments = list(segments)
+    if cfg["debug_log"]:
+        with open(ROOT / "debug.log", "a", encoding="utf-8") as f:
+            for s in segments:
+                f.write(
+                    f"{time.strftime('%H:%M:%S')} logprob={s.avg_logprob:.2f} "
+                    f"no_speech={s.no_speech_prob:.2f} {s.text!r}\n"
+                )
+    pieces = [convert_script(s.text) for s in segments]
+    if cfg["normalize_punctuation"]:
+        pieces = [normalize_punctuation(p) for p in pieces]
+    return "".join(pieces).strip()
+
+
 def transcribe(chunks):
     try:
         audio = np.concatenate(chunks).flatten()
         if len(audio) < SR * 0.3:
             set_state("idle")
             return
-        segments, _ = model.transcribe(
-            audio,
-            language=cfg["language"],
-            multilingual=cfg["multilingual"],
-            vad_filter=True,
-            initial_prompt=cfg["initial_prompt"] or None,
-            condition_on_previous_text=False,
-        )
-        pieces = [convert_script(s.text) for s in segments]
-        if cfg["normalize_punctuation"]:
-            pieces = [normalize_punctuation(p) for p in pieces]
-        text = "".join(pieces).strip()
+        text = recognize(audio)
         if text:
             previous = pyperclip.paste() if cfg["auto_paste"] and cfg["restore_clipboard"] else ""
             pyperclip.copy(text)
@@ -212,27 +230,48 @@ class RestrictedDetector:
         return out
 
 
+def create_model(device=None):
+    """加载 Whisper 并套上语言检测限制/加权。device 为空时先试 CUDA，失败退回 CPU。"""
+    if device == "cpu":
+        m = WhisperModel(cfg["model"], device="cpu", compute_type="int8")
+    else:
+        try:
+            m = WhisperModel(cfg["model"], device="cuda", compute_type="float16")
+        except Exception as e:
+            if icon:
+                icon.notify(f"CUDA 失败,改用 CPU: {e}"[:200], "super-whisper")
+            m = WhisperModel(cfg["model"], device="cpu", compute_type="int8")
+    m.model = RestrictedDetector(m.model, cfg["languages"], cfg["language_bias"])
+    return m
+
+
 def load_model():
     global model
-    try:
-        model = WhisperModel(cfg["model"], device="cuda", compute_type="float16")
-    except Exception as e:
-        icon.notify(f"CUDA 失败,改用 CPU: {e}"[:200], "super-whisper")
-        model = WhisperModel(cfg["model"], device="cpu", compute_type="int8")
-    if cfg["multilingual"]:
-        model.model = RestrictedDetector(model.model, cfg["languages"], cfg["language_bias"])
+    model = create_model()
     # 预热,避免第一次识别卡顿
     list(model.transcribe(np.zeros(SR, dtype="float32"))[0])
     set_state("idle", f"super-whisper: 就绪 ({cfg['hotkey']})")
     beep(1000)
 
 
-def set_script(key):
+def set_value(key, value):
     def handler(icon_, item):
-        cfg["chinese_script"] = key
+        cfg[key] = value
         save_config()
 
     return handler
+
+
+def toggle_flag(key):
+    def handler(icon_, item):
+        cfg[key] = not cfg[key]
+        save_config()
+
+    return handler
+
+
+def open_config(icon_, item):
+    os.startfile(ROOT / "config.json")
 
 
 def quit_app(icon_, item):
@@ -240,18 +279,36 @@ def quit_app(icon_, item):
     icon_.stop()
 
 
-def build_menu():
-    script_items = [
+def radio_menu(title, key, choices):
+    items = [
         pystray.MenuItem(
             label,
-            set_script(key),
-            checked=lambda item, key=key: cfg["chinese_script"] == key,
+            set_value(key, value),
+            checked=lambda item, value=value: cfg[key] == value,
             radio=True,
         )
-        for key, label in SCRIPT_CHOICES.items()
+        for value, label in choices
     ]
+    return pystray.MenuItem(title, pystray.Menu(*items))
+
+
+def flag_item(title, key):
+    return pystray.MenuItem(title, toggle_flag(key), checked=lambda item: cfg[key])
+
+
+def build_menu():
     return pystray.Menu(
-        pystray.MenuItem("中文字形", pystray.Menu(*script_items)),
+        radio_menu("中文字形", "chinese_script", list(SCRIPT_CHOICES.items())),
+        radio_menu("默认语言", "language", LANGUAGE_CHOICES),
+        flag_item("逐句检测语言", "multilingual"),
+        flag_item("规范标点", "normalize_punctuation"),
+        pystray.Menu.SEPARATOR,
+        flag_item("自动粘贴", "auto_paste"),
+        flag_item("粘贴后还原剪贴板", "restore_clipboard"),
+        flag_item("识别后弹通知", "notify_result"),
+        flag_item("调试日志", "debug_log"),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("打开配置文件", open_config),
         pystray.MenuItem("退出", quit_app),
     )
 
