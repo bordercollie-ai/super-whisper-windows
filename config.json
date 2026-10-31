@@ -1,0 +1,12 @@
+{
+  "hotkey": "alt+.",
+  "model": "large-v3-turbo",
+  "language": "zh",
+  "multilingual": true,
+  "languages": ["zh", "en", "ja"],
+  "language_bias": {"zh": 2.0},
+  "initial_prompt": "你好，这是一段普通话。Hello, this is English. こんにちは、日本語です。",
+  "auto_paste": true,
+  "restore_clipboard": true,
+  "max_seconds": 300
+}
