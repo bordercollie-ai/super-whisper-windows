@@ -20,10 +20,17 @@ DEFAULTS = {
     "restore_clipboard": True,
     "max_seconds": 300,
     "chinese_script": "simplified",
+    "normalize_punctuation": True,
 }
 
 SCRIPT_CHOICES = {"simplified": "简体中文", "traditional": "繁体中文", "none": "不转换"}
 KANA = re.compile(r"[\u3040-\u30ff]")
+CJK_CLASS = r"\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"
+CJK = re.compile(f"[{CJK_CLASS}]")
+HALF_TO_FULL = {",": "，", ".": "。", "?": "？", "!": "！", ":": "：", ";": "；"}
+FULL_TO_HALF = {"，": ", ", "、": ", ", "。": ". ", "？": "? ", "！": "! ", "：": ": ", "；": "; "}
+ASCII_AFTER_CJK = re.compile(f"([{CJK_CLASS}])[ ]?([,.?!:;])(?![\\d.])")
+SPACE_AFTER_FULL = re.compile(f"([，。？！：；、])[ ]+(?=[{CJK_CLASS}])")
 
 
 def load_config():
@@ -61,6 +68,17 @@ from opencc import OpenCC  # noqa: E402
 from PIL import Image, ImageDraw  # noqa: E402
 
 CONVERTERS = {"simplified": OpenCC("t2s"), "traditional": OpenCC("s2t")}
+
+
+def normalize_punctuation(seg_text):
+    """只处理明确的情况:汉字/假名后的半角标点转全角;纯英文句子的全角标点转半角加空格。"""
+    if not CJK.search(seg_text):
+        out = "".join(FULL_TO_HALF.get(c, c) for c in seg_text)
+        return re.sub(r" {2,}", " ", out)
+    out = ASCII_AFTER_CJK.sub(lambda m: m.group(1) + HALF_TO_FULL[m.group(2)], seg_text)
+    if KANA.search(out):
+        out = out.replace("，", "、")
+    return SPACE_AFTER_FULL.sub(r"\1", out)
 
 
 def convert_script(seg_text):
@@ -120,7 +138,10 @@ def transcribe(chunks):
             initial_prompt=cfg["initial_prompt"] or None,
             condition_on_previous_text=False,
         )
-        text = "".join(convert_script(s.text) for s in segments).strip()
+        pieces = [convert_script(s.text) for s in segments]
+        if cfg["normalize_punctuation"]:
+            pieces = [normalize_punctuation(p) for p in pieces]
+        text = "".join(pieces).strip()
         if text:
             previous = pyperclip.paste() if cfg["auto_paste"] and cfg["restore_clipboard"] else ""
             pyperclip.copy(text)

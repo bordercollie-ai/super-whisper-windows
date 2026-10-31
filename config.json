@@ -9,5 +9,6 @@
   "auto_paste": true,
   "restore_clipboard": true,
   "max_seconds": 300,
-  "chinese_script": "simplified"
+  "chinese_script": "simplified",
+  "normalize_punctuation": true
 }
