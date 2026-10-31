@@ -8,5 +8,6 @@
   "initial_prompt": "你好，这是一段普通话。Hello, this is English. こんにちは、日本語です。",
   "auto_paste": true,
   "restore_clipboard": true,
-  "max_seconds": 300
+  "max_seconds": 300,
+  "chinese_script": "simplified"
 }

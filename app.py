@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -18,7 +19,11 @@ DEFAULTS = {
     "auto_paste": True,
     "restore_clipboard": True,
     "max_seconds": 300,
+    "chinese_script": "simplified",
 }
+
+SCRIPT_CHOICES = {"simplified": "简体中文", "traditional": "繁体中文", "none": "不转换"}
+KANA = re.compile(r"[\u3040-\u30ff]")
 
 
 def load_config():
@@ -31,6 +36,10 @@ def load_config():
     return cfg
 
 
+def save_config():
+    (ROOT / "config.json").write_text(
+        json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 def add_cuda_dlls():
     site = ROOT / ".venv" / "Lib" / "site-packages" / "nvidia"
     if not site.exists():
@@ -48,7 +57,18 @@ import pyperclip  # noqa: E402
 import pystray  # noqa: E402
 import sounddevice as sd  # noqa: E402
 from faster_whisper import WhisperModel  # noqa: E402
+from opencc import OpenCC  # noqa: E402
 from PIL import Image, ImageDraw  # noqa: E402
+
+CONVERTERS = {"simplified": OpenCC("t2s"), "traditional": OpenCC("s2t")}
+
+
+def convert_script(seg_text):
+    conv = CONVERTERS.get(cfg["chinese_script"])
+    # 含假名的句子是日语,汉字(如「話」)不能当繁体转
+    if conv is None or KANA.search(seg_text):
+        return seg_text
+    return conv.convert(seg_text)
 
 SR = 16000
 COLORS = {"loading": "#888888", "idle": "#2e9e4f", "recording": "#d93025", "working": "#f2a900"}
@@ -100,7 +120,7 @@ def transcribe(chunks):
             initial_prompt=cfg["initial_prompt"] or None,
             condition_on_previous_text=False,
         )
-        text = "".join(s.text for s in segments).strip()
+        text = "".join(convert_script(s.text) for s in segments).strip()
         if text:
             previous = pyperclip.paste() if cfg["auto_paste"] and cfg["restore_clipboard"] else ""
             pyperclip.copy(text)
@@ -177,9 +197,33 @@ def load_model():
     beep(1000)
 
 
+def set_script(key):
+    def handler(icon_, item):
+        cfg["chinese_script"] = key
+        save_config()
+
+    return handler
+
+
 def quit_app(icon_, item):
     keyboard.unhook_all()
     icon_.stop()
+
+
+def build_menu():
+    script_items = [
+        pystray.MenuItem(
+            label,
+            set_script(key),
+            checked=lambda item, key=key: cfg["chinese_script"] == key,
+            radio=True,
+        )
+        for key, label in SCRIPT_CHOICES.items()
+    ]
+    return pystray.Menu(
+        pystray.MenuItem("中文字形", pystray.Menu(*script_items)),
+        pystray.MenuItem("退出", quit_app),
+    )
 
 
 def main():
@@ -191,7 +235,7 @@ def main():
         "super-whisper",
         make_icon(COLORS["loading"]),
         "super-whisper: 加载模型中…",
-        menu=pystray.Menu(pystray.MenuItem("退出", quit_app)),
+        menu=build_menu(),
     )
     threading.Thread(target=load_model, daemon=True).start()
     icon.run()
