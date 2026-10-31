@@ -138,6 +138,7 @@ def audio_cb(indata, frames, t, status):
 
 def recognize(audio):
     """音频 -> 最终文本(含繁简转换和标点规范化)。托盘流程和测试共用。"""
+    model.model.detections.clear()
     segments, _ = model.transcribe(
         audio,
         language=cfg["language"],
@@ -151,10 +152,18 @@ def recognize(audio):
     segments = list(segments)
     if cfg["debug_log"]:
         with open(ROOT / "debug.log", "a", encoding="utf-8") as f:
+            now = time.strftime("%H:%M:%S")
+            f.write(
+                f"{now} --- audio={len(audio) / SR:.1f}s language={cfg['language']} "
+                f"multilingual={cfg['multilingual']} bias={cfg['language_bias']}\n"
+            )
+            for top in model.model.detections:
+                cand = " ".join(f"{c}:{raw:.2f}->{w:.2f}" for c, raw, w in top)
+                f.write(f"{now}   detect(原始概率->加权后) {cand}\n")
             for s in segments:
                 f.write(
-                    f"{time.strftime('%H:%M:%S')} logprob={s.avg_logprob:.2f} "
-                    f"no_speech={s.no_speech_prob:.2f} {s.text!r}\n"
+                    f"{now}   logprob={s.avg_logprob:.2f} no_speech={s.no_speech_prob:.2f} "
+                    f"{s.text!r}\n"
                 )
     pieces = [convert_script(s.text) for s in segments]
     if cfg["normalize_punctuation"]:
@@ -212,6 +221,7 @@ class RestrictedDetector:
         self._inner = inner
         self._allowed = {f"<|{c}|>" for c in allowed}
         self._bias = {f"<|{c}|>": w for c, w in bias.items()}
+        self.detections = []  # 每次检测的前几名,调试日志用
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
@@ -227,6 +237,9 @@ class RestrictedDetector:
             ]
             scored.sort(key=lambda x: x[1], reverse=True)
             out.append(scored or per_sample)
+            raw = dict(per_sample)
+            top = [(t[2:-2], raw[t], w) for t, w in (scored or per_sample)[:3]]
+            self.detections.append(top)
         return out
 
 

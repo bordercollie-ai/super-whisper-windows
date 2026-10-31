@@ -3,8 +3,14 @@
   "model": "large-v3-turbo",
   "language": "zh",
   "multilingual": true,
-  "languages": ["zh", "en", "ja"],
-  "language_bias": {"zh": 4.0},
+  "languages": [
+    "zh",
+    "en",
+    "ja"
+  ],
+  "language_bias": {
+    "zh": 4.0
+  },
   "beam_size": 5,
   "initial_prompt": "你好，这是一段普通话。Hello, this is English. こんにちは、日本語です。",
   "auto_paste": true,
@@ -13,5 +19,5 @@
   "chinese_script": "simplified",
   "normalize_punctuation": true,
   "notify_result": false,
-  "debug_log": false
+  "debug_log": true
 }
