@@ -21,6 +21,7 @@ DEFAULTS = {
     "max_seconds": 300,
     "chinese_script": "simplified",
     "normalize_punctuation": True,
+    "notify_result": False,
 }
 
 SCRIPT_CHOICES = {"simplified": "简体中文", "traditional": "繁体中文", "none": "不转换"}
@@ -57,6 +58,13 @@ def add_cuda_dlls():
 
 
 add_cuda_dlls()
+
+try:  # 声明 DPI 感知，否则 4K 屏上托盘图标会被系统位图拉伸而模糊
+    import ctypes
+
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except Exception:
+    pass
 
 import keyboard  # noqa: E402
 import numpy as np  # noqa: E402
@@ -100,9 +108,10 @@ icon = None
 
 
 def make_icon(color):
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    ImageDraw.Draw(img).ellipse((6, 6, 58, 58), fill=color)
-    return img
+    # 超采样后缩小以获得抗锯齿；256px 让 ICO 包含 16~256 全部尺寸，高 DPI 下选用大图
+    big = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
+    ImageDraw.Draw(big).ellipse((64, 64, 960, 960), fill=color)
+    return big.resize((256, 256), Image.LANCZOS)
 
 
 def set_state(new, title=None):
@@ -152,7 +161,7 @@ def transcribe(chunks):
                 if previous:
                     time.sleep(0.4)  # 等目标程序读完剪贴板再还原
                     pyperclip.copy(previous)
-            if icon:
+            if icon and cfg["notify_result"]:
                 icon.notify(text[:120], "已复制到剪贴板")
         else:
             beep(300, 200)

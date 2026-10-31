@@ -10,5 +10,6 @@
   "restore_clipboard": true,
   "max_seconds": 300,
   "chinese_script": "simplified",
-  "normalize_punctuation": true
+  "normalize_punctuation": true,
+  "notify_result": false
 }
